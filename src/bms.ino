@@ -8,6 +8,7 @@
 #define BMS_PIN 7
 #define KEY_PIN 6
 #define AC_PIN 5
+#define NEXTSTATE_PIN 4
 
 typedef enum {
   STANDBY,
@@ -28,6 +29,8 @@ typedef enum {
 bms_state_t state;
 bms_state_t nextState;
 
+uint8_t keyOnCount = 0;
+
 void setup() {
   // set up IO pin modes
   pinMode(CONTACTOR_PIN, OUTPUT);   // First and second relay from the left
@@ -41,8 +44,10 @@ void setup() {
   attachPCINT(digitalPinToPCINT(BMS_PIN), bmsChange, CHANGE);
   attachPCINT(digitalPinToPCINT(AC_PIN), acChange, CHANGE);
   attachPCINT(digitalPinToPCINT(KEY_PIN), keyChange, CHANGE);
+  attachPCINT(digitalPinToPCINT(NEXTSTATE_PIN), advanceState, FALLING);
 
   // set up initial state
+
   state = DISCHARGING;
   nextState = state;
 
@@ -196,7 +201,33 @@ void acChange() {
 void keyChange() {
   noInterrupts();
   uint8_t keyEdge = getPinChangeInterruptTrigger(digitalPinToPCINT(KEY_PIN));
+  if(keyEdge == FALLING && state == EMPTY && ++keyOnCount == 3) {
+    nextState = DISCHARGING;
+    keyOnCount = 0;
+    delay(50);
+    interrupts();
+    return;
+  }
   handleBMSEvent(keyEdge == RISING ? KEY_OFF : KEY_ON);
   delay(50);
+  interrupts();
+}
+
+void advanceState() {
+  noInterrupts();
+  switch (state) {
+    case STANDBY:
+      nextState = DISCHARGING;
+      break;
+    case CHARGING:
+      nextState = STANDBY;
+      break;
+    case DISCHARGING:
+      nextState = EMPTY;
+      break;
+    case EMPTY:
+      nextState = CHARGING;
+  }
+  delay(100);
   interrupts();
 }
